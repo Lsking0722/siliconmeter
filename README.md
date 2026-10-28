@@ -81,7 +81,7 @@ Grab `SiliconMeter-x.y.z.dmg` from [Releases](../../releases) and drag the app i
 All you need is Xcode or the Command Line Tools (`xcode-select --install`).
 
 ```bash
-git clone https://github.com/<your-username>/siliconmeter.git
+git clone https://github.com/<Lsking0722>/siliconmeter.git
 cd siliconmeter
 ./scripts/build_app.sh
 open build/SiliconMeter.app
