@@ -187,7 +187,9 @@ struct PopoverView: View {
                               prefs: prefs, z: m.text)
                 }
             }
-            .frame(width: m.panelWidth)
+            // Leading-aligned: anything that ever runs wider is cut on the right, never shifted
+            // left (which once cut the first letters off every line at 50 %).
+            .frame(width: m.panelWidth, alignment: .leading)
             .frame(maxHeight: .infinity)
             .clipped()
 
@@ -224,7 +226,7 @@ struct PopoverView: View {
 struct PopoverBackground: ViewModifier {
     func body(content: Content) -> some View {
         // `-SMNoGlass YES` keeps the solid background on macOS 26+ too (for A/B measurements).
-        if #available(macOS 26.0, *), !UserDefaults.standard.bool(forKey: "SMNoGlass") {
+        if #available(macOS 26.0, *), Theme.onGlass {
             content.containerShape(.rect(cornerRadius: PopoverView.popoverCornerRadius))
         } else {
             content.background(Color.black)
@@ -342,6 +344,7 @@ struct FrameRatePicker: View {
     @ObservedObject var prefs: Preferences
     let accent: Color
     var z: CGFloat = 1
+    var showLabel = true
 
     var body: some View {
         HStack(spacing: 3 * z) {
@@ -349,9 +352,10 @@ struct FrameRatePicker: View {
                 Pill(label: "\(rate)", selected: prefs.fps == rate, accent: accent, z: z,
                      accessibilityName: "\(rate) frames per second") { prefs.fps = rate }
             }
-            Text("fps").foregroundColor(Theme.secondary).fixedSize()
+            if showLabel { Text("fps").foregroundColor(Theme.secondary).fixedSize() }
         }
         .font(.system(size: max(9, 11 * z), weight: .medium).monospacedDigit())
+        .help("Animation frame rate (frames per second)")
     }
 }
 
@@ -379,6 +383,7 @@ struct SimplePanel: View {
     @ObservedObject var prefs: Preferences
 
     private var accent: Color { ChipCatalog.palette(chip).accent.color }
+    private var valueColor: Color { ChipCatalog.palette(chip).value.color }
 
     var body: some View {
         let gb = 1_073_741_824.0
@@ -414,7 +419,7 @@ struct SimplePanel: View {
             Spacer(minLength: 4)
             Text(value)
                 .font(.system(size: 17, weight: .light).monospacedDigit())
-                .foregroundColor(Theme.text)
+                .foregroundColor(valueColor)
             Text(unit)
                 .font(.system(size: 9.5, weight: .medium).monospacedDigit())
                 .foregroundColor(Theme.secondary)
@@ -432,7 +437,7 @@ struct SimplePanel: View {
             Spacer(minLength: 4)
             Text(value)
                 .font(.system(size: 12.5, weight: .regular).monospacedDigit())
-                .foregroundColor(Theme.text.opacity(0.85))
+                .foregroundColor(valueColor)
             Text(unit)
                 .font(.system(size: 9, weight: .medium))
                 .foregroundColor(Theme.secondary)
@@ -532,17 +537,11 @@ struct SpecPanel: View {
             if let prefs {
                 VStack(alignment: .leading, spacing: 8 * z) {
                     LayoutPicker(prefs: prefs, accent: accent, z: z)
-                    HStack(spacing: 6 * z) {
-                        Toggle("Open at login", isOn: $login.enabled)
-                            .toggleStyle(.checkbox)
-                            .font(.system(size: max(9, 11 * z)))
-                            .foregroundColor(Theme.secondary)
-                            .lineLimit(1)
-                            .fixedSize()
-                        Spacer(minLength: 4 * z)
-                        FrameRatePicker(prefs: prefs, accent: accent, z: z)
-                        Spacer(minLength: 4 * z)
-                        QuitButton(accent: accent, z: z)
+                    // The narrow 50 % column can't fit "fps" after the rate pills; then it goes
+                    // (the pills keep their "frames per second" label for VoiceOver).
+                    ViewThatFits(in: .horizontal) {
+                        controlRow(prefs, fpsLabel: true)
+                        controlRow(prefs, fpsLabel: false)
                     }
                 }
             }
@@ -550,6 +549,22 @@ struct SpecPanel: View {
     }
 
     private var accent: Color { ChipCatalog.palette(chip).accent.color }
+    private var valueColor: Color { ChipCatalog.palette(chip).value.color }
+
+    private func controlRow(_ prefs: Preferences, fpsLabel: Bool) -> some View {
+        HStack(spacing: 6 * z) {
+            Toggle("Open at login", isOn: $login.enabled)
+                .toggleStyle(.checkbox)
+                .font(.system(size: max(9, 11 * z)))
+                .foregroundColor(Theme.secondary)
+                .lineLimit(1)
+                .fixedSize()
+            Spacer(minLength: 4 * z)
+            FrameRatePicker(prefs: prefs, accent: accent, z: z, showLabel: fpsLabel)
+            Spacer(minLength: 4 * z)
+            QuitButton(accent: accent, z: z)
+        }
+    }
 
     private var memorySection: some View {
         let m = snapshot.memory
@@ -635,7 +650,7 @@ struct SpecPanel: View {
 
     private func line(_ label: String, _ value: String, _ suffix: String = "") -> some View {
         (Text(label + " ").foregroundColor(Theme.secondary)
-            + Text(value).foregroundColor(Theme.text.opacity(0.85))
+            + Text(value).foregroundColor(valueColor)
             + Text(suffix.isEmpty ? "" : " " + suffix).foregroundColor(Theme.secondary))
             .font(.system(size: 12.5 * z).monospacedDigit())
             .lineLimit(1)

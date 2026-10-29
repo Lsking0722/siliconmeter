@@ -25,13 +25,24 @@ enum Theme {
     static let petrol = Color(red: 0.04, green: 0.40, blue: 0.53)
     static let spark = Color(red: 0.86, green: 1.0, blue: 0.96)
     static let text = Color(white: 0.95)
-    /// Labels and units. Brighter when "Increase contrast" is on (the system then gives views
-    /// a high-contrast appearance), since the popover's glass lets the desktop through.
+    /// Labels and units.
+    /// On Liquid Glass (macOS 26+) they are white at 74 % opacity, like the system's vibrant
+    /// secondary label: the glass takes on the desktop's colour, and over a bright wallpaper
+    /// the old fixed grey fell to a 2.5 : 1 contrast (measured on screen); this keeps it above
+    /// 4.5 : 1 while still letting the glass tint through. On the solid black popover the
+    /// original grey stays. Both get brighter with "Increase contrast".
     static let secondary = Color(nsColor: NSColor(name: "SiliconMeterSecondary") { appearance in
-        highContrast(appearance)
-            ? NSColor(red: 0.78, green: 0.82, blue: 0.83, alpha: 1)
-            : NSColor(red: 0.55, green: 0.60, blue: 0.61, alpha: 1)
+        let high = highContrast(appearance)
+        if onGlass { return NSColor(white: 1, alpha: high ? 0.88 : 0.74) }
+        return high ? NSColor(red: 0.78, green: 0.82, blue: 0.83, alpha: 1)
+                    : NSColor(red: 0.55, green: 0.60, blue: 0.61, alpha: 1)
     })
+
+    /// True when the popover shows Liquid Glass instead of its solid background.
+    static let onGlass: Bool = {
+        if #available(macOS 26.0, *) { return !UserDefaults.standard.bool(forKey: "SMNoGlass") }
+        return false
+    }()
 
     static func highContrast(_ appearance: NSAppearance) -> Bool {
         let match = appearance.bestMatch(from: [.darkAqua, .aqua,

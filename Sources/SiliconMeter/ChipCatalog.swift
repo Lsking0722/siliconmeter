@@ -28,6 +28,16 @@ struct RGB: Equatable {
     }
     static let white = RGB(0xFFFFFF)
     static let black = RGB(0x000000)
+
+    /// WCAG relative luminance.
+    var luminance: Double {
+        func lin(_ v: Double) -> Double { v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+    }
+    func contrast(with o: RGB) -> Double {
+        let a = luminance, b = o.luminance
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
 }
 
 struct ChipPalette {
@@ -42,6 +52,16 @@ struct ChipPalette {
     var ink: RGB { stops.map { $0.0 }.min { lum($0) < lum($1) }!.mix(.black, 0.94) }
     /// UI accent for the spec panel (pressure pill, legend).
     var accent: RGB { stops[stops.count / 2].0 }
+    /// Colour of live readings in the spec and Simple columns: the palette's lightest stop,
+    /// lifted toward white only as far as it takes to read at 4.5 : 1 against the brightest
+    /// glass measured behind the popover (a light wallpaper through Liquid Glass).
+    var value: RGB {
+        let lightest = stops.map { $0.0 }.max { $0.luminance < $1.luminance }!
+        let glass = RGB(r: 96 / 255, g: 85 / 255, b: 80 / 255)
+        var t = 0.0
+        while t < 0.7 && lightest.mix(.white, t).contrast(with: glass) < 4.5 { t += 0.05 }
+        return lightest.mix(.white, t)
+    }
 
     /// Colour at position u on the palette run forwards then back (A→…→Z→…→A), so any
     /// phase is seamless. Used for gradients that drift slowly over time.
