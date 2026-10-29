@@ -153,6 +153,11 @@ struct PopoverView: View {
     static let spacing: CGFloat = 28
     static let margin: CGFloat = 26
 
+    /// Corner radius of the system popover on macOS 26 and later, the container shape inner
+    /// elements are concentric with. Measured on screen on macOS 27 (≈ 12 pt); the system does
+    /// not publish it.
+    static let popoverCornerRadius: CGFloat = 12
+
     /// Die canvas at 100 %.
     /// Every chip gets about the same die area (≈ 215 000 pt²), so a base chip, a Pro and an
     /// Ultra look equally weighty and their popovers differ little in size; very tall or very
@@ -205,8 +210,25 @@ struct PopoverView: View {
         }
         .padding(m.margin)
         .frame(width: m.content.width, height: m.content.height)
-        .background(Color.black)
+        .modifier(PopoverBackground())
         .environment(\.colorScheme, .dark)
+    }
+}
+
+// MARK: - Liquid Glass background (macOS 26+)
+
+/// macOS 26 and later: no background of our own, so the system popover's Liquid Glass shows
+/// (HIG: remove custom backgrounds from popovers), and the content declares the popover's
+/// shape so inner elements can be concentric with it. Earlier systems keep the solid black
+/// popover.
+struct PopoverBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        // `-SMNoGlass YES` keeps the solid background on macOS 26+ too (for A/B measurements).
+        if #available(macOS 26.0, *), !UserDefaults.standard.bool(forKey: "SMNoGlass") {
+            content.containerShape(.rect(cornerRadius: PopoverView.popoverCornerRadius))
+        } else {
+            content.background(Color.black)
+        }
     }
 }
 
@@ -239,10 +261,60 @@ struct DieCanvas: View {
     }
 }
 
-// MARK: - Layout picker
+// MARK: - Controls
+//
+// Every choice and action in the popover is the same pill, so each kind of control looks and
+// behaves alike: the current choice is filled with the chip's accent, the rest are faint;
+// hovering lifts a pill slightly; the whole pill (not just its text) is clickable; VoiceOver
+// reads each as a button and says which one is selected.
 
-/// "100% 75% 50% Simple" (or "100 75 50 S" in simple mode), never wrapping; the current choice is filled
-/// with the chip's accent.
+/// One pill: used for die size, frame rate and Quit.
+struct Pill: View {
+    let label: String
+    var selected = false
+    let accent: Color
+    var z: CGFloat = 1
+    var compact = false
+    var accessibilityName: String? = nil
+    let action: () -> Void
+
+    // Not @State: that is a macro the Command Line Tools cannot expand on macOS 27 SDKs.
+    @StateObject private var hover = HoverFlag()
+    private var hovering: Bool { hover.on }
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, (compact ? 4.5 : 6) * z)
+                .padding(.vertical, 2 * z)
+                .background(Capsule().fill(fill))
+                // Increase contrast: every pill gets an outline, so unselected ones don't
+                // dissolve into the glass.
+                .overlay(Capsule().strokeBorder(outline, lineWidth: contrast == .increased ? 1 : 0))
+                .foregroundColor(selected ? accent : (hovering ? Theme.text : Theme.secondary))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover.on = $0 }
+        .accessibilityLabel(accessibilityName ?? label)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var fill: Color {
+        let strong = contrast == .increased
+        if selected { return accent.opacity(hovering ? 0.36 : (strong ? 0.32 : 0.22)) }
+        return Color.white.opacity(hovering ? 0.14 : (strong ? 0.12 : 0.06))
+    }
+
+    private var outline: Color { selected ? accent : Color.white.opacity(0.45) }
+}
+
+final class HoverFlag: ObservableObject { @Published var on = false }
+
+/// "100% 75% 50% Simple" (or "100 75 50 S" in simple mode), never wrapping.
 struct LayoutPicker: View {
     @ObservedObject var prefs: Preferences
     let accent: Color
@@ -252,25 +324,16 @@ struct LayoutPicker: View {
     var body: some View {
         HStack(spacing: (compact ? 3 : 4) * z) {
             ForEach(Preferences.dieScales, id: \.self) { value in
-                chip(compact ? "\(Int((value * 100).rounded()))" : "\(Int((value * 100).rounded()))%",
-                     selected: !prefs.simple && abs(prefs.dieScale - value) < 0.001) { prefs.choose(scale: value) }
+                let percent = Int((value * 100).rounded())
+                Pill(label: compact ? "\(percent)" : "\(percent)%",
+                     selected: !prefs.simple && abs(prefs.dieScale - value) < 0.001,
+                     accent: accent, z: z, compact: compact,
+                     accessibilityName: "Die size \(percent) percent") { prefs.choose(scale: value) }
             }
-            chip(compact ? "S" : "Simple", selected: prefs.simple) { prefs.chooseSimple() }
+            Pill(label: compact ? "S" : "Simple", selected: prefs.simple, accent: accent, z: z,
+                 compact: compact, accessibilityName: "Simple mode") { prefs.chooseSimple() }
         }
         .font(.system(size: max(9, (compact ? 9.5 : 11) * z), weight: .medium).monospacedDigit())
-    }
-
-    private func chip(_ label: String, selected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, (compact ? 4.5 : 6) * z)
-                .padding(.vertical, 2 * z)
-                .background(Capsule().fill(selected ? accent.opacity(0.22) : Color.white.opacity(0.06)))
-                .foregroundColor(selected ? accent : Theme.secondary)
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -283,21 +346,26 @@ struct FrameRatePicker: View {
     var body: some View {
         HStack(spacing: 3 * z) {
             ForEach(Preferences.frameRates, id: \.self) { rate in
-                let selected = prefs.fps == rate
-                Button { prefs.fps = rate } label: {
-                    Text("\(rate)")
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 5 * z)
-                        .padding(.vertical, 2 * z)
-                        .background(Capsule().fill(selected ? accent.opacity(0.22) : Color.white.opacity(0.06)))
-                        .foregroundColor(selected ? accent : Theme.secondary)
-                }
-                .buttonStyle(.plain)
+                Pill(label: "\(rate)", selected: prefs.fps == rate, accent: accent, z: z,
+                     accessibilityName: "\(rate) frames per second") { prefs.fps = rate }
             }
             Text("fps").foregroundColor(Theme.secondary).fixedSize()
         }
         .font(.system(size: max(9, 11 * z), weight: .medium).monospacedDigit())
+    }
+}
+
+/// Quit, as a pill like the other controls (⌘Q also works while the popover is open).
+struct QuitButton: View {
+    let accent: Color
+    var z: CGFloat = 1
+
+    var body: some View {
+        Pill(label: "Quit", accent: accent, z: z, accessibilityName: "Quit SiliconMeter") {
+            NSApp.terminate(nil)
+        }
+        .keyboardShortcut("q", modifiers: .command)
+        .font(.system(size: max(9, 11 * z), weight: .medium))
     }
 }
 
@@ -474,10 +542,7 @@ struct SpecPanel: View {
                         Spacer(minLength: 4 * z)
                         FrameRatePicker(prefs: prefs, accent: accent, z: z)
                         Spacer(minLength: 4 * z)
-                        Button("Quit") { NSApp.terminate(nil) }
-                            .buttonStyle(.plain)
-                            .font(.system(size: max(9, 11 * z), weight: .medium))
-                            .foregroundColor(Theme.secondary)
+                        QuitButton(accent: accent, z: z)
                     }
                 }
             }

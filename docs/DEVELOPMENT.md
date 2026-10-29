@@ -77,6 +77,12 @@ build/SiliconMeter.app/Contents/MacOS/SiliconMeter --simulate sim
 
 Writes every configuration's detected layout (`chips.json`), menu bar icons at 1x, 2x and 4x, and popover snapshots to `sim/`, and checks the cached render against a full redraw.
 
+```bash
+open build/SiliconMeter.app --args --debug -SMNoGlass YES      # solid background on macOS 26+ too
+```
+
+On macOS 26 and later the popover drops its own background so the system's Liquid Glass shows through; `-SMNoGlass YES` brings the solid black back for side-by-side checks. (Measured on an M4 at 100 % and 30 fps: app ≈ 11–12 % of a core and WindowServer ≈ 10 % either way, so the glass costs nothing extra.)
+
 ## What's measured and what's for show
 
 | Element | Data | Source |

@@ -133,7 +133,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         panel.orderFrontRegardless()
         debugPanel = panel
 
-        debugInstall(debug.selected)
+        // Give the status item a moment to get its place in the menu bar before the popover
+        // anchors to it (at launch its frame is still empty).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
+            self?.debugInstall(debug.selected)
+        }
     }
     private var debugLoadSubscription = Set<AnyCancellable>()
 

@@ -25,7 +25,19 @@ enum Theme {
     static let petrol = Color(red: 0.04, green: 0.40, blue: 0.53)
     static let spark = Color(red: 0.86, green: 1.0, blue: 0.96)
     static let text = Color(white: 0.95)
-    static let secondary = Color(red: 0.55, green: 0.60, blue: 0.61)
+    /// Labels and units. Brighter when "Increase contrast" is on (the system then gives views
+    /// a high-contrast appearance), since the popover's glass lets the desktop through.
+    static let secondary = Color(nsColor: NSColor(name: "SiliconMeterSecondary") { appearance in
+        highContrast(appearance)
+            ? NSColor(red: 0.78, green: 0.82, blue: 0.83, alpha: 1)
+            : NSColor(red: 0.55, green: 0.60, blue: 0.61, alpha: 1)
+    })
+
+    static func highContrast(_ appearance: NSAppearance) -> Bool {
+        let match = appearance.bestMatch(from: [.darkAqua, .aqua,
+                                                .accessibilityHighContrastDarkAqua, .accessibilityHighContrastAqua])
+        return match == .accessibilityHighContrastDarkAqua || match == .accessibilityHighContrastAqua
+    }
     static let warning = Color(red: 0.96, green: 0.76, blue: 0.31)
     static let critical = Color(red: 1.0, green: 0.42, blue: 0.37)
 

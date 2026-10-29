@@ -261,9 +261,10 @@ final class SystemSampler {
             if busy && watts == 0 && !anePowerSeen { anePowerBroken = true }
             if watts > 0 { anePowerSeen = true }
             if !anePowerBroken {
-                // Shown once the counter has proved it works, or when nothing else describes
-                // the engine (no traffic counter on this chip).
-                if anePowerSeen || snap.aneTraffic == nil { snap.anePower = watts }
+                // Only where there is no traffic counter: a measured traffic figure beats a
+                // power reading that may be stuck near zero (an M4 shows stray tiny values),
+                // and the line keeps one meaning instead of flipping between the two.
+                if snap.aneTraffic == nil { snap.anePower = watts }
                 if snap.ane == nil {
                     aneFullPower = max(aneFullPower, watts)
                     snap.ane = min(1, watts / aneFullPower)

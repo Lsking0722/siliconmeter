@@ -1,5 +1,7 @@
 # SiliconMeter
 
+**English** · [한국어](README.ko.md)
+
 **A menu bar monitor that shows what your Mac's chip is doing — drawn as the chip itself.**
 
 ![SiliconMeter](docs/hero.gif)
@@ -25,7 +27,7 @@ Not one "CPU 37%" average. Each core gets its own live reading and its own glow,
 macOS doesn't expose Neural Engine utilization, and on M4 the usual power counter just reads zero, even under load. So SiliconMeter estimates activity from how much of the time the Neural Engine is holding a memory-bandwidth request, and shows how much data it's moving (GB/s) alongside. Throw a Vision workload at an M4 and it climbs from 0% to the 90s. Estimated values are marked "(est.)".
 
 **5. Practically free while it sits in the menu bar**
-Sampling and animation only run while the popover is open. Close it and CPU usage drops to 0%. Even while it's open, everything that doesn't move (the die plate, block outlines, gradients, wiring) is rendered once and cached, and each frame only redraws what changed. On an M4 with the popover open at 30 fps, it sits around 10% of one core.
+Sampling and animation only run while the popover is open. Close it and CPU usage drops to 0%. Even while it's open, everything that doesn't move (the die plate, block outlines, gradients, wiring) is rendered once and cached, and each frame only redraws what changed. On an M4 with the popover open at 30 fps, it sits around 10–12% of one core.
 
 **6. No sudo, no network**
 It never asks for admin rights and never touches the internet. Everything is read on your Mac and stays there.
@@ -35,9 +37,10 @@ It never asks for admin rights and never touches the internet. Everything is rea
 ## Features
 
 - **Menu bar icon:** a tiny chip with its name engraved. Base chips are square; Pro, Max and Ultra are tall rectangles marked P, M or U. On non-Retina (1x) displays the lettering switches to a hand-tuned pixel font so it stays crisp.
-- **Popover:** a keynote-style spec list on the left (load per core tier, GPU, Neural Engine, memory breakdown, pressure, swap) and the live die on the right.
+- **Popover:** a keynote-style spec list on the left (load per core tier, GPU, Neural Engine, memory breakdown, pressure, swap) and the live die on the right. On macOS 26 and later it sits on the system's Liquid Glass; earlier versions keep the solid dark look.
 - **Sizes:** die at 100%, 75% or 50%, plus a Simple mode that's just the big numbers. The popover animates smoothly between them.
 - **Frame rate:** 30 or 60 fps. Respects the system's Reduce Motion setting.
+- **Accessibility:** every control is labeled for VoiceOver, ⌘Q quits while the popover is open, and with Increase Contrast on, labels brighten and the size and frame-rate pills get outlines.
 - **Open at login:** one checkbox at the bottom of the popover.
 
 ---
@@ -81,7 +84,7 @@ Grab `SiliconMeter-x.y.z.dmg` from [Releases](../../releases) and drag the app i
 All you need is Xcode or the Command Line Tools (`xcode-select --install`).
 
 ```bash
-git clone https://github.com/<Lsking0722>/siliconmeter.git
+git clone https://github.com/Lsking0722/siliconmeter.git
 cd siliconmeter
 ./scripts/build_app.sh
 open build/SiliconMeter.app
