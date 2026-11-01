@@ -74,12 +74,9 @@ struct PopoverMetrics {
         return d >= 0.75 ? 0.88 + (d - 0.75) * 0.48 : 0.8 + (d - 0.5) * 0.32
     }
 
-    /// Height the spec column needs at full size, measured from the rendered panel: 251 pt of
-    /// title, GPU, Neural Engine and memory sections, 66 pt per CPU tier, and in the live
-    /// popover the GPU clock and Neural Engine power lines (18 each) plus the die size
-    /// picker and login row (56).
+    /// Height the spec column needs at full size (every row has a fixed height; SpecRows).
     static func textColumnHeight(tiers: Int, controls: Bool) -> CGFloat {
-        251 + 66 * CGFloat(max(1, tiers)) + (controls ? 18 + 18 + 56 : 0) + 4
+        SpecRows.column(tiers: tiers, controls: controls)
     }
 
     static func make(for drawing: ChipDrawing, tiers: Int, dieScale: Double, controls: Bool = true) -> PopoverMetrics {
@@ -101,14 +98,20 @@ struct PopoverMetrics {
     static let simpleMargin: CGFloat = 14
     static let simpleSpacing: CGFloat = 14
     static let simplePanelWidth: CGFloat = 104
+    /// Room above the Simple column in the window, for the traffic lights.
+    static let windowSimpleReserve: CGFloat = 18
 
     static func simpleColumnHeight(tiers: Int) -> CGFloat {
-        24 + 17 * CGFloat(max(1, tiers)) + 8 + 24 * 3 + 17 + 12 + 20
+        22 + 24 + 17 * CGFloat(max(1, tiers)) + 8 + 24 * 3 + 17 + 12 + 20
     }
 
     /// Exactly the 50 % popover's footprint; the die canvas takes everything the narrow
     /// numbers column leaves free (the renderer fits the die into it, keeping proportions).
-    static func simple(for drawing: ChipDrawing, tiers: Int) -> PopoverMetrics {
+    ///
+    /// In the floating window (`window`), the numbers column starts `windowSimpleReserve`
+    /// lower, below the window's close and minimise buttons, while the outer margins stay
+    /// even all round.
+    static func simple(for drawing: ChipDrawing, tiers: Int, window: Bool = false) -> PopoverMetrics {
         let half = make(for: drawing, tiers: tiers, dieScale: 0.5)
         // The 50 % popover's width; the height is only what the die (filling that width) or
         // the numbers column needs, never the taller 50 % text column, so a wide die such as
@@ -116,7 +119,8 @@ struct PopoverMetrics {
         let width = half.content.width - simpleMargin * 2 - simplePanelWidth - simpleSpacing
         let aspect = drawing.size.width / max(drawing.size.height, 0.01)
         let dieHeight = min((width - 8) / aspect + 8, half.content.height - simpleMargin * 2)
-        let height = simpleMargin * 2 + max(dieHeight, simpleColumnHeight(tiers: tiers))
+        let reserve = window ? windowSimpleReserve : 0
+        let height = simpleMargin * 2 + max(dieHeight, simpleColumnHeight(tiers: tiers) + reserve)
         let canvas = CGSize(width: width, height: height - simpleMargin * 2)
         return PopoverMetrics(canvas: canvas, text: 1, margin: simpleMargin, spacing: simpleSpacing,
                               panelWidth: simplePanelWidth,
@@ -124,10 +128,11 @@ struct PopoverMetrics {
     }
 
     /// The layout `simple` of the way (0…1) from the normal layout to the simple one.
-    static func make(for drawing: ChipDrawing, tiers: Int, dieScale: Double, simple: Double) -> PopoverMetrics {
+    static func make(for drawing: ChipDrawing, tiers: Int, dieScale: Double, simple: Double,
+                     window: Bool = false) -> PopoverMetrics {
         let a = make(for: drawing, tiers: tiers, dieScale: dieScale)
         guard simple > 0 else { return a }
-        let b = self.simple(for: drawing, tiers: tiers)
+        let b = self.simple(for: drawing, tiers: tiers, window: window)
         guard simple < 1 else { return b }
         func l(_ x: CGFloat, _ y: CGFloat) -> CGFloat { x + (y - x) * CGFloat(simple) }
         return PopoverMetrics(canvas: CGSize(width: l(a.canvas.width, b.canvas.width), height: l(a.canvas.height, b.canvas.height)),
@@ -142,6 +147,10 @@ struct PopoverView: View {
     @ObservedObject var monitor: Monitor
     @ObservedObject var prefs: Preferences
     let drawing: ChipDrawing
+    /// Shown in the floating window instead of the popover: the same content and size. The
+    /// window's close and minimise buttons sit in the top margin (Simple mode moves its
+    /// numbers column down to clear them; PopoverMetrics.simple).
+    var inWindow = false
 
     // No @State here: on macOS 27 SDKs @State is a macro whose plugin ships only with
     // Xcode, so a Command Line Tools build fails. Long-lived state lives in Monitor instead.
@@ -157,6 +166,8 @@ struct PopoverView: View {
     /// elements are concentric with. Measured on screen on macOS 27 (≈ 12 pt); the system does
     /// not publish it.
     static let popoverCornerRadius: CGFloat = 12
+    /// Corner radius of a titled window without a toolbar on macOS 26 and later (≈ 16 pt).
+    static let windowCornerRadius: CGFloat = 16
 
     /// Die canvas at 100 %.
     /// Every chip gets about the same die area (≈ 215 000 pt²), so a base chip, a Pro and an
@@ -177,11 +188,12 @@ struct PopoverView: View {
 
     var body: some View {
         let m = PopoverMetrics.make(for: drawing, tiers: monitor.chip.tiers.count,
-                                    dieScale: prefs.displayScale, simple: prefs.displaySimple)
+                                    dieScale: prefs.displayScale, simple: prefs.displaySimple, window: inWindow)
         HStack(alignment: .center, spacing: m.spacing) {
             Group {
                 if prefs.simple {
                     SimplePanel(chip: monitor.chip, snapshot: monitor.snapshot, prefs: prefs)
+                        .padding(.top, inWindow ? PopoverMetrics.windowSimpleReserve : 0)
                 } else {
                     SpecPanel(chip: monitor.chip, snapshot: monitor.snapshot, login: monitor.login,
                               prefs: prefs, z: m.text)
@@ -212,7 +224,11 @@ struct PopoverView: View {
         }
         .padding(m.margin)
         .frame(width: m.content.width, height: m.content.height)
-        .modifier(PopoverBackground())
+        // The window's content runs under its (transparent) title bar; without this SwiftUI
+        // would push the view down by the title bar's height and cut off the bottom.
+        .ignoresSafeArea()
+        .background(alignment: .topLeading) { if inWindow { CloseWindowShortcut() } }
+        .modifier(PopoverBackground(inWindow: inWindow))
         .environment(\.colorScheme, .dark)
     }
 }
@@ -224,13 +240,29 @@ struct PopoverView: View {
 /// shape so inner elements can be concentric with it. Earlier systems keep the solid black
 /// popover.
 struct PopoverBackground: ViewModifier {
+    var inWindow = false
+
     func body(content: Content) -> some View {
         // `-SMNoGlass YES` keeps the solid background on macOS 26+ too (for A/B measurements).
+        // In the window the glass is an NSGlassEffectView behind this view (AppDelegate).
         if #available(macOS 26.0, *), Theme.onGlass {
-            content.containerShape(.rect(cornerRadius: PopoverView.popoverCornerRadius))
+            content.containerShape(.rect(cornerRadius: inWindow ? PopoverView.windowCornerRadius
+                                                               : PopoverView.popoverCornerRadius))
         } else {
             content.background(Color.black)
         }
+    }
+}
+
+/// ⌘W closes the floating window (the app has no menu bar of its own to carry it).
+struct CloseWindowShortcut: View {
+    var body: some View {
+        Button("Close Window") { NSApp.keyWindow?.performClose(nil) }
+            .keyboardShortcut("w", modifiers: .command)
+            .buttonStyle(.plain)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
     }
 }
 
@@ -245,6 +277,8 @@ struct DieCanvas: View {
     let reduceMotion: Bool
     let size: CGSize
     @Environment(\.displayScale) private var displayScale
+    // Not @State (a macro the Command Line Tools can't expand); a StateObject works.
+    @StateObject private var hover = DieHoverState()
 
     var body: some View {
         let frame = clock.frame
@@ -252,11 +286,34 @@ struct DieCanvas: View {
         // Everything static comes from images rendered once for this size (nil while the
         // popover is resizing; the frame is then drawn in full).
         let layers = monitor.layers.layers(for: renderer, size: size, scale: displayScale, state: monitor.anim)
+        let hover = self.hover
         Canvas { context, size in
             _ = frame
             let now = Date().timeIntervalSinceReferenceDate
             monitor.anim.step(toward: monitor.snapshot, time: now)
             renderer.render(context, size: size, state: monitor.anim, time: reduceMotion ? 0 : now, layers: layers)
+            if let lit = hover.step(time: now) {
+                renderer.drawHover(context, size: size, region: lit.0, level: lit.1, time: reduceMotion ? 0 : now)
+                if let p = hover.point {
+                    let pal = ChipCatalog.palette(monitor.chip)
+                    DieHoverTag.draw(context, size: size, at: p,
+                                     label: DieHover.label(for: lit.0, chip: monitor.chip, snapshot: monitor.snapshot),
+                                     accent: pal.accent.color, valueColor: pal.value.color, opacity: lit.1)
+                }
+            }
+        }
+        .onContinuousHover(coordinateSpace: .local) { phase in
+            switch phase {
+            case let .active(p):
+                let g = renderer.geometry(size)
+                let u = CGPoint(x: (p.x - g.ox) / g.s, y: (p.y - g.oy) / g.s)
+                let region = DieHover.region(at: u, in: drawing)
+                hover.point = region == nil ? nil : p
+                if hover.region != region { hover.region = region }
+            case .ended:
+                hover.point = nil
+                hover.region = nil
+            }
         }
         .onAppear { monitor.reduceMotion = reduceMotion }
         .onChange(of: reduceMotion) { monitor.reduceMotion = $0 }
@@ -390,6 +447,12 @@ struct SimplePanel: View {
         let cores = snapshot.cores
         let all = cores.isEmpty ? 0 : cores.reduce(0, +) / Double(cores.count)
         VStack(alignment: .leading, spacing: 0) {
+            Text(chip.displayName)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Theme.text)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(height: 22, alignment: .topLeading)
             big("CPU", snapshot.valid ? num(all) : "–", "%")
             ForEach(chip.tiers, id: \.index) { tier in
                 let loads = chip.cpus(ofTier: tier.index).map { $0 < cores.count ? cores[$0] : 0 }
@@ -432,7 +495,7 @@ struct SimplePanel: View {
         HStack(alignment: .firstTextBaseline, spacing: 0) {
             Text(label)
                 .font(.system(size: 9, weight: .bold))
-                .foregroundColor(accent)
+                .foregroundColor(ChipCatalog.palette(chip).label.color)
                 .padding(.leading, 8)
             Spacer(minLength: 4)
             Text(value)
@@ -473,6 +536,36 @@ final class LoginItem: ObservableObject {
 
 // MARK: - Spec column
 
+/// Row heights of the spec column at text scale 1. Every row has a fixed height, so the
+/// column's height is known before it is laid out (PopoverMetrics sizes the popover from it).
+enum SpecRows {
+    static let title: CGFloat = 30          // chip name
+    static let subtitle: CGFloat = 16       // "10-core CPU · 10-core GPU · 24GB"
+    static let titleGap: CGFloat = 4
+    static let divider: CGFloat = 19        // 9 + 1 pt rule + 9
+    static let header: CGFloat = 21         // section label and its headline value
+    static let headerGap: CGFloat = 3
+    static let tier: CGFloat = 18           // "P  4 Performance cores        42%"
+    static let line: CGFloat = 17
+    static let tierGap: CGFloat = 5
+    static let legend: CGFloat = 12
+    static let legendGap: CGFloat = 5
+    static let controls: CGFloat = 14 + 56  // spacer above + size picker and login row
+
+    /// Chip name, then CPU (one sub-block per tier), GPU, Neural Engine and memory, each
+    /// section a header and its lines, with a rule between sections.
+    static func column(tiers: Int, controls: Bool) -> CGFloat {
+        let t = CGFloat(max(1, tiers))
+        let name = title + subtitle + titleGap
+        let cpu = header + headerGap + t * (tier + line) + (t - 1) * tierGap
+        let gpu = header + headerGap + line
+        let npu = header + headerGap + line
+        let memory = header + headerGap + 3 * line + legendGap + legend
+        return name + divider + cpu + divider + gpu + divider + npu + divider + memory
+            + (controls ? self.controls : 0) + 4
+    }
+}
+
 struct SpecPanel: View {
     let chip: ChipInfo
     let snapshot: Snapshot
@@ -482,55 +575,20 @@ struct SpecPanel: View {
     /// Text scale: fonts, spacing and padding are all multiplied by it.
     var z: CGFloat = 1
 
+    private let gb = 1_073_741_824.0
+    private var totalGB: Int { Int((Double(chip.memoryBytes) / gb).rounded()) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("\(chip.cpuCount)-core CPU")
-                .font(.system(size: 21 * z, weight: .regular))
-                .foregroundColor(Theme.text)
-            Rectangle()
-                .fill(Theme.text.opacity(0.5))
-                .frame(height: 1)
-                .padding(.top, 9 * z)
-                .padding(.bottom, 12 * z)
-
-            VStack(alignment: .leading, spacing: 12 * z) {
-                ForEach(chip.tiers, id: \.index) { tier in
-                    let loads = chip.cpus(ofTier: tier.index).map { cpu in
-                        cpu < snapshot.cores.count ? snapshot.cores[cpu] : 0
-                    }
-                    VStack(alignment: .leading, spacing: 3 * z) {
-                        heading("\(tier.cpuCount) \(tier.name.lowercased()) core\(tier.cpuCount == 1 ? "" : "s")")
-                        if snapshot.valid {
-                            line("Load", pct(average(loads)), "· \(loads.filter { $0 > 0.05 }.count) of \(tier.cpuCount) active")
-                            line("Busiest core", pct(loads.max() ?? 0))
-                        } else {
-                            line("Measuring", "…")
-                        }
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 3 * z) {
-                    heading("\(chip.gpuCores)-core GPU")
-                    line("Utilization", snapshot.valid ? pct(snapshot.gpu) : "…")
-                    if let mhz = snapshot.gpuMHz { line("Clock", "\(Int(mhz.rounded())) MHz") }
-                }
-
-                VStack(alignment: .leading, spacing: 3 * z) {
-                    heading("\(chip.npuCores)-core Neural Engine")
-                    if let ane = snapshot.ane {
-                        line("Activity", pct(ane), snapshot.aneEstimated ? "(est.)" : "")
-                        if let watts = snapshot.anePower {
-                            line("Power", String(format: watts < 0.1 ? "%.2f W" : "%.1f W", watts))
-                        } else if let traffic = snapshot.aneTraffic {
-                            line("Traffic", String(format: traffic < 10 ? "%.1f GB/s" : "%.0f GB/s", traffic))
-                        }
-                    } else {
-                        line(snapshot.valid ? "Not reported on this Mac" : "Measuring", "")
-                    }
-                }
-
-                memorySection
-            }
+            titleBlock
+            divider
+            cpuSection
+            divider
+            gpuSection
+            divider
+            neuralEngineSection
+            divider
+            memorySection
 
             Spacer(minLength: 14 * z)
 
@@ -549,7 +607,113 @@ struct SpecPanel: View {
     }
 
     private var accent: Color { ChipCatalog.palette(chip).accent.color }
+    private var labelColor: Color { ChipCatalog.palette(chip).label.color }
     private var valueColor: Color { ChipCatalog.palette(chip).value.color }
+
+    // MARK: Sections
+
+    private var titleBlock: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(chip.displayName)
+                .font(.system(size: 24 * z, weight: .regular))
+                .foregroundColor(Theme.text)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(height: SpecRows.title * z, alignment: .bottomLeading)
+            Text("\(chip.cpuCount)-core CPU · \(chip.gpuCores)-core GPU · \(totalGB)GB")
+                .font(.system(size: 11.5 * z))
+                .foregroundColor(Theme.secondary)
+                .lineLimit(1)
+                .fixedSize()
+                .frame(height: SpecRows.subtitle * z, alignment: .leading)
+        }
+        .padding(.bottom, SpecRows.titleGap * z)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var cpuSection: some View {
+        let cores = snapshot.cores
+        let all = cores.isEmpty ? 0 : cores.reduce(0, +) / Double(cores.count)
+        return VStack(alignment: .leading, spacing: 0) {
+            header("CPU", "\(chip.cpuCount)-core", snapshot.valid ? pct(all) : "…")
+            VStack(alignment: .leading, spacing: SpecRows.tierGap * z) {
+                ForEach(chip.tiers, id: \.index) { tier in
+                    let loads = chip.cpus(ofTier: tier.index).map { cpu in
+                        cpu < cores.count ? cores[cpu] : 0
+                    }
+                    VStack(alignment: .leading, spacing: 0) {
+                        tierRow(tier, value: snapshot.valid ? pct(average(loads)) : "…")
+                        if snapshot.valid {
+                            line("Active", "\(loads.filter { $0 > 0.05 }.count) of \(tier.cpuCount)",
+                                 "· Busiest \(pct(loads.max() ?? 0))", indent: true)
+                        } else {
+                            line("Measuring", "", indent: true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var gpuSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header("GPU", "\(chip.gpuCores)-core", snapshot.valid ? pct(snapshot.gpu) : "…")
+            if let mhz = snapshot.gpuMHz {
+                line("Clock", "\(Int(mhz.rounded())) MHz")
+            } else {
+                line(snapshot.valid ? "Utilization, whole GPU" : "Measuring", "")
+            }
+        }
+    }
+
+    private var neuralEngineSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header("Neural Engine", "\(chip.npuCores)-core", snapshot.ane.map { pct($0) } ?? "–",
+                   note: snapshot.ane != nil && snapshot.aneEstimated ? "est." : nil)
+            if snapshot.ane != nil {
+                if let watts = snapshot.anePower {
+                    line("Power", String(format: watts < 0.1 ? "%.2f W" : "%.1f W", watts))
+                } else if let traffic = snapshot.aneTraffic {
+                    line("Traffic", String(format: traffic < 10 ? "%.1f GB/s" : "%.0f GB/s", traffic))
+                } else {
+                    line("Activity", "")
+                }
+            } else {
+                line(snapshot.valid ? "Not reported on this Mac" : "Measuring", "")
+            }
+        }
+    }
+
+    private var memorySection: some View {
+        let m = snapshot.memory
+        return VStack(alignment: .leading, spacing: 0) {
+            header("Memory", "\(totalGB)GB unified",
+                   m.total > 0 ? String(format: "%.1f GB", m.used / gb) : "…")
+            if m.total > 0 {
+                line("Wired", String(format: "%.1f GB", m.wired / gb),
+                     String(format: "· Compressed %.1f GB", m.compressed / gb))
+                let bw = ChipCatalog.bandwidth(chip)
+                line("Bandwidth", "\(ChipCatalog.formatBandwidth(bw.gbps)) GB/s", bw.known ? "" : "(est.)")
+                HStack(spacing: 6 * z) {
+                    Text("Pressure").foregroundColor(Theme.secondary)
+                    Text(m.pressure.rawValue)
+                        .font(.system(size: max(9, 10.5 * z), weight: .semibold))
+                        .padding(.horizontal, 6 * z)
+                        .padding(.vertical, 1 * z)
+                        .background(Capsule().fill(pressureColor(m.pressure).opacity(0.18)))
+                        .foregroundColor(pressureColor(m.pressure))
+                    Text(String(format: "Swap %.1f GB", m.swapUsed / gb)).foregroundColor(Theme.secondary)
+                }
+                .font(.system(size: 12.5 * z))
+                .lineLimit(1)
+                .fixedSize()
+                .frame(height: SpecRows.line * z)
+                legend.padding(.top, SpecRows.legendGap * z)
+            } else {
+                line("Measuring", "")
+            }
+        }
+    }
 
     private func controlRow(_ prefs: Preferences, fpsLabel: Bool) -> some View {
         HStack(spacing: 6 * z) {
@@ -566,35 +730,6 @@ struct SpecPanel: View {
         }
     }
 
-    private var memorySection: some View {
-        let m = snapshot.memory
-        let gb = 1_073_741_824.0
-        let totalGB = Int((Double(chip.memoryBytes) / gb).rounded())
-        return VStack(alignment: .leading, spacing: 3 * z) {
-            heading("\(totalGB)GB unified memory")
-            if m.total > 0 {
-                line("Used", String(format: "%.1f GB", m.used / gb), "of \(totalGB) GB")
-                line("Wired", String(format: "%.1f", m.wired / gb), String(format: "· Compressed %.1f GB", m.compressed / gb))
-                let bw = ChipCatalog.bandwidth(chip)
-                line("Bandwidth", "\(ChipCatalog.formatBandwidth(bw.gbps)) GB/s", bw.known ? "" : "(est.)")
-                HStack(spacing: 6 * z) {
-                    Text("Pressure").foregroundColor(Theme.secondary)
-                    Text(m.pressure.rawValue)
-                        .font(.system(size: max(9, 10.5 * z), weight: .semibold))
-                        .padding(.horizontal, 6 * z)
-                        .padding(.vertical, 1 * z)
-                        .background(Capsule().fill(pressureColor(m.pressure).opacity(0.18)))
-                        .foregroundColor(pressureColor(m.pressure))
-                    Text(String(format: "Swap %.1f GB", m.swapUsed / gb)).foregroundColor(Theme.secondary)
-                }
-                .font(.system(size: 12.5 * z))
-                legend.padding(.top, 5 * z)
-            } else {
-                line("Measuring", "…")
-            }
-        }
-    }
-
     /// One row at full size; two rows once the text is scaled down, where the 9 pt minimum
     /// no longer fits five labels across the column.
     @ViewBuilder private var legend: some View {
@@ -606,6 +741,7 @@ struct SpecPanel: View {
                 swatch("Cached", fill: 0.16, mark: false)
                 swatch("Free", fill: 0, mark: false)
             }
+            .frame(height: SpecRows.legend * z)
         } else {
             VStack(alignment: .leading, spacing: 3 * z) {
                 HStack(spacing: 9 * z) {
@@ -641,23 +777,75 @@ struct SpecPanel: View {
 
     // MARK: - Pieces
 
-    private func heading(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 14 * z, weight: .regular))
-            .foregroundColor(Theme.text)
-            .padding(.bottom, 1 * z)
+    /// A thin rule between sections, with even space above and below.
+    private var divider: some View {
+        Rectangle()
+            .fill(Theme.text.opacity(0.14))
+            .frame(height: 1)
+            .padding(.vertical, (SpecRows.divider - 1) / 2 * z)
     }
 
-    private func line(_ label: String, _ value: String, _ suffix: String = "") -> some View {
-        (Text(label + " ").foregroundColor(Theme.secondary)
+    /// "CPU  10-core ............ 37%": the section label in the chip's accent, its size in
+    /// grey, and the section's headline value on the right, a size larger than the lines.
+    private func header(_ title: String, _ detail: String, _ value: String, note: String? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5 * z) {
+            Text(title.uppercased())
+                .font(.system(size: 12 * z, weight: .semibold))
+                .tracking(1.1 * z)
+                .foregroundColor(labelColor)
+            Text(detail)
+                .font(.system(size: 11 * z))
+                .foregroundColor(Theme.secondary)
+            Spacer(minLength: 4 * z)
+            if let note {
+                Text(note)
+                    .font(.system(size: 10 * z))
+                    .foregroundColor(Theme.secondary)
+            }
+            Text(value)
+                .font(.system(size: 15 * z, weight: .medium).monospacedDigit())
+                .foregroundColor(valueColor)
+        }
+        .lineLimit(1)
+        .frame(height: SpecRows.header * z)
+        .padding(.bottom, SpecRows.headerGap * z)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// "[P] 4 Performance cores ........ 42%".
+    private func tierRow(_ tier: CoreTier, value: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6 * z) {
+            Text(tier.letter)
+                .font(.system(size: 9.5 * z, weight: .bold))
+                .foregroundColor(labelColor)
+                .frame(minWidth: 13 * z)
+                .padding(.vertical, 1 * z)
+                .background(RoundedRectangle(cornerRadius: 3 * z).fill(accent.opacity(0.16)))
+            Text("\(tier.cpuCount) \(tier.name.lowercased()) core\(tier.cpuCount == 1 ? "" : "s")")
+                .font(.system(size: 13 * z))
+                .foregroundColor(Theme.text)
+            Spacer(minLength: 4 * z)
+            Text(value)
+                .font(.system(size: 13 * z).monospacedDigit())
+                .foregroundColor(valueColor)
+        }
+        .lineLimit(1)
+        .frame(height: SpecRows.tier * z)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func line(_ label: String, _ value: String, _ suffix: String = "", indent: Bool = false) -> some View {
+        (Text(label + (value.isEmpty ? "" : " ")).foregroundColor(Theme.secondary)
             + Text(value).foregroundColor(valueColor)
             + Text(suffix.isEmpty ? "" : " " + suffix).foregroundColor(Theme.secondary))
-            .font(.system(size: 12.5 * z).monospacedDigit())
+            .font(.system(size: 12 * z).monospacedDigit())
             .lineLimit(1)
             // Never "…": while the column widens back from Simple mode a line can be laid out
             // narrow, and SwiftUI kept that truncation after the column reached full width.
             // At rest every line fits; mid-animation the column clips instead.
             .fixedSize(horizontal: true, vertical: false)
+            .frame(height: SpecRows.line * z, alignment: .leading)
+            .padding(.leading, indent ? 19 * z : 0)
     }
 
     private func pct(_ x: Double) -> String { "\(Int((x * 100).rounded()))%" }

@@ -27,9 +27,12 @@ Not one "CPU 37%" average. Each core gets its own live reading and its own glow,
 macOS doesn't expose Neural Engine utilization, and on M4 the usual power counter just reads zero, even under load. So SiliconMeter estimates activity from how much of the time the Neural Engine is holding a memory-bandwidth request, and shows how much data it's moving (GB/s) alongside. Throw a Vision workload at an M4 and it climbs from 0% to the 90s. Estimated values are marked "(est.)".
 
 **5. Practically free while it sits in the menu bar**
-Sampling and animation only run while the popover is open. Close it and CPU usage drops to 0%. Even while it's open, everything that doesn't move (the die plate, block outlines, gradients, wiring) is rendered once and cached, and each frame only redraws what changed. On an M4 with the popover open at 30 fps, it sits around 10–12% of one core.
+Sampling and animation only run while the popover or the floating window is open. Close them and CPU usage drops to 0%. Even while it's open, everything that doesn't move (the die plate, block outlines, gradients, wiring) is rendered once and cached, and each frame only redraws what changed. On an M4 with the popover open at 30 fps, it sits around 10–12% of one core.
 
-**6. No sudo, no network**
+**6. Not just in the menu bar**
+Pop the view out into a window and leave it on screen, or pin your chip to the desktop as a widget; clicking the widget opens the live view. Point at any block on the die and it tells you what it is and how hard it's working.
+
+**7. No sudo, no network**
 It never asks for admin rights and never touches the internet. Everything is read on your Mac and stays there.
 
 ---
@@ -37,7 +40,10 @@ It never asks for admin rights and never touches the internet. Everything is rea
 ## Features
 
 - **Menu bar icon:** a tiny chip with its name engraved. Base chips are square; Pro, Max and Ultra are tall rectangles marked P, M or U. On non-Retina (1x) displays the lettering switches to a hand-tuned pixel font so it stays crisp.
-- **Popover:** a keynote-style spec list on the left (load per core tier, GPU, Neural Engine, memory breakdown, pressure, swap) and the live die on the right. On macOS 26 and later it sits on the system's Liquid Glass; earlier versions keep the solid dark look.
+- **Popover:** the chip's name up top, then CPU (one row per core tier), GPU, Neural Engine and memory, each section with its headline number on the right, beside the live die. On macOS 26 and later it sits on the system's Liquid Glass; earlier versions keep the solid dark look.
+- **Point at the die:** hover over any block and every block of that kind lights up with a soft glow, while a small label next to the pointer says what it is — P-core, GPU core, Neural Engine, system level cache, unified memory, UltraFusion — with its live value.
+- **Floating window:** right-click the menu bar icon and choose **Open in Window** to keep the same view on screen, with the same sizes and controls as the popover. The pin in its title bar (or **Keep Window on Top** in the menu) keeps it above other windows. It remembers where you left it, ⌘W closes it.
+- **Desktop widget (macOS 14+):** your chip's die, drawn at rest, in small, medium (the die beside its core counts) and large sizes; Ultra chips, two dies tall, come in medium and large. When another window is in front and macOS tints widgets, the die turns into clean line art instead of a white block. Widgets can't animate, so a click opens the floating window, where the die runs live.
 - **Sizes:** die at 100%, 75% or 50%, plus a Simple mode that's just the big numbers. The popover animates smoothly between them.
 - **Frame rate:** 30 or 60 fps. Respects the system's Reduce Motion setting.
 - **Accessibility:** every control is labeled for VoiceOver, ⌘Q quits while the popover is open, and with Increase Contrast on, labels brighten and the size and frame-rate pills get outlines.
@@ -92,12 +98,14 @@ open build/SiliconMeter.app
 
 A build you make yourself skips the first-launch warning entirely.
 
+The desktop widget shows up in the widget gallery (right-click the desktop → **Edit Widgets**) once the app is in `Applications` and has been opened once.
+
 ---
 
 ## Requirements
 
 - An Apple Silicon Mac (M1 or later, including the A18 Pro MacBook Neo)
-- macOS 13 Ventura or later
+- macOS 13 Ventura or later (the desktop widget needs macOS 14 Sonoma)
 
 Intel Macs aren't supported — the whole point is to show Apple Silicon's layout.
 
@@ -132,12 +140,13 @@ That's usually all I need to fix it.
 - **It uses a private API (IOReport).** That rules out the Mac App Store, and a future macOS update could stop some values from coming through. If that happens, the affected item shows "Not reported" and everything else keeps working.
 - **Not yet tested on a real macOS 13 machine.** The app targets macOS 13, so anything unavailable there is caught at compile time, but I haven't run it on actual Ventura hardware.
 - **The M6 layout is a guess.** I'll update it once Apple publishes an illustration.
+- **The widget is a still picture.** macOS doesn't let widgets animate or refresh every second, so the widget shows the die itself, not live numbers. A click opens the live view.
 
 ---
 
 ## How it's built
 
-Drawn in SwiftUI and built as a single Swift package with no third-party dependencies. The data layer follows the proven approach in [SiliconScope](https://github.com/kennss/SiliconScope) (MIT), and the M5 core-tier naming follows [Stats](https://github.com/exelban/stats). Full notices are in `THIRD_PARTY_NOTICES.md`.
+Drawn in SwiftUI and built as a single Swift package with no third-party dependencies; the desktop widget is a WidgetKit extension that the build script compiles from the same drawing code. The data layer follows the proven approach in [SiliconScope](https://github.com/kennss/SiliconScope) (MIT), and the M5 core-tier naming follows [Stats](https://github.com/exelban/stats). Full notices are in `THIRD_PARTY_NOTICES.md`.
 
 The large-scale block layout takes its cue from Apple's illustrations, but the fine detail inside each block and all the animation are original, and there's no Apple logo anywhere.
 

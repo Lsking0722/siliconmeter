@@ -23,6 +23,14 @@ final class DebugState: ObservableObject {
 
     var onSelect: ((String) -> Void)?
     var onReopen: (() -> Void)?
+    var onWidgets: (() -> Void)?
+
+    private lazy var realChip = ChipInfo.detect()
+
+    /// The chip an id stands for: this Mac, or a simulated configuration.
+    func chip(for id: String) -> ChipInfo {
+        SimSpec.all.first { $0.id == id }?.chipInfo() ?? realChip
+    }
 
     init(selected: String) { self.selected = selected }
 
@@ -93,6 +101,7 @@ struct DebugPanel: View {
                 Button("◀ Prev") { state.step(-1) }
                 Button("Next ▶") { state.step(1) }
                 Spacer()
+                Button("Widgets") { state.onWidgets?() }
                 Button("Reopen") { state.onReopen?() }
             }
             HStack(spacing: 4) {
@@ -125,6 +134,18 @@ struct DebugPanel: View {
         }
         .padding(12)
         .frame(width: 300, height: 660)
+    }
+}
+
+/// The selected chip's desktop widgets, every size it offers, in colour and tinted: the same
+/// drawing code as the widget extension (WidgetArt), following the debug chip list.
+struct DebugWidgetPreview: View {
+    @ObservedObject var state: DebugState
+
+    var body: some View {
+        let chip = state.chip(for: state.selected)
+        WidgetPreviewSheet(chip: chip, drawing: ChipLayout.build(for: chip))
+            .fixedSize()
     }
 }
 

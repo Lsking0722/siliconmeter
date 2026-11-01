@@ -63,6 +63,16 @@ struct ChipPalette {
         return lightest.mix(.white, t)
     }
 
+    /// Colour of section labels ("CPU", "GPU", …) and core-tier letters: the accent, lifted
+    /// toward white as far as it takes to read at 4.5 : 1 on the same bright glass. (The
+    /// plain accent, e.g. M4's mid blue, all but disappeared over a light wallpaper.)
+    var label: RGB {
+        let glass = RGB(r: 96 / 255, g: 85 / 255, b: 80 / 255)
+        var t = 0.0
+        while t < 0.8 && accent.mix(.white, t).contrast(with: glass) < 4.5 { t += 0.05 }
+        return accent.mix(.white, t)
+    }
+
     /// Colour at position u on the palette run forwards then back (A→…→Z→…→A), so any
     /// phase is seamless. Used for gradients that drift slowly over time.
     func cyclic(_ u: Double) -> RGB {

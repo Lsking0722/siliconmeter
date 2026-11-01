@@ -15,11 +15,22 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.2.0</string>
+    <string>0.3.0</string>
     <key>CFBundleVersion</key>
-    <string>2</string>
+    <string>4</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key>
+            <string>io.github.siliconmeter</string>
+            <key>CFBundleURLSchemes</key>
+            <array>
+                <string>siliconmeter</string>
+            </array>
+        </dict>
+    </array>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>

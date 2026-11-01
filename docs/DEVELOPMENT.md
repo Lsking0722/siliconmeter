@@ -3,16 +3,18 @@
 SiliconMeter is a menu bar app that shows an Apple Silicon Mac's live resource usage as a **drawing of the chip die**.
 
 - **Menu bar:** a plain chip icon with the chip's name engraved. Its shape follows the chip: base chips are square; Pro, Max and Ultra are one tall rectangle with the chip number on top and P, M or U below.
-- **Popover:** a keynote-style spec list on the left, the live die animation on the right. Every core glows as hard as it's working, and the unified memory packages under the die fill with usage.
+- **Popover:** a spec list on the left (chip name, then CPU per core tier, GPU, Neural Engine and memory sections), the live die animation on the right. Every core glows as hard as it's working, and the unified memory packages under the die fill with usage. Pointing at a block outlines every block of its kind and labels it beside the pointer.
+- **Floating window:** the same view in a window (right-click menu → Open in Window), optionally kept on top.
+- **Desktop widget (macOS 14+):** the die at rest in small / medium / large (Ultra: medium and large); a click opens the floating window.
 - **Sizes:** die size (100% · 75% · 50%) and a numbers-only Simple mode, picked from the bottom-left of the popover.
-- **Efficiency:** sampling and animation run only while the popover is open (sampling once a second, drawing at 30 or 60 fps, chosen in the popover or the right-click menu) and stop when it closes. The parts of the die that never move (silicon plate, block outlines, chip name, wiring, interposer metal, memory package frames) and the gradients are rendered once per size into images; each frame only computes what changes with load. The menu bar icon is a static image, so it costs nothing while idle.
+- **Efficiency:** sampling and animation run only while the popover or the floating window is open (sampling once a second, drawing at 30 or 60 fps, chosen in the popover or the right-click menu) and stop when it closes. The parts of the die that never move (silicon plate, block outlines, chip name, wiring, interposer metal, memory package frames) and the gradients are rendered once per size into images; each frame only computes what changes with load. The menu bar icon is a static image, so it costs nothing while idle.
 - **Permissions:** no sudo, no network access.
 
 ## Requirements
 
 - An Apple Silicon Mac (M1 or later, including the A18 Pro MacBook Neo), macOS 13 or later
 - Xcode or the Command Line Tools (`xcode-select --install`)
-- The deployment target is macOS 13, so APIs missing on 13 fail at compile time. The app has not yet been run on a real macOS 13 machine.
+- The deployment target is macOS 13, so APIs missing on 13 fail at compile time. The app has not yet been run on a real macOS 13 machine. The widget extension targets macOS 14.
 
 ## Build and run
 
@@ -22,7 +24,7 @@ open build/SiliconMeter.app     # run it
 cp -R build/SiliconMeter.app /Applications/   # install (optional)
 ```
 
-Click the menu bar icon to open the popover; right-click it for the menu (frame rate, quit). "Open at login" at the bottom of the popover starts the app at login (best after installing to `/Applications`).
+Click the menu bar icon to open the popover; right-click it for the menu (floating window, keep on top, frame rate, quit). "Open at login" at the bottom of the popover starts the app at login (best after installing to `/Applications`).
 
 ## Release packages
 
@@ -36,6 +38,19 @@ The app is ad-hoc signed and not notarized (no Apple Developer ID), so macOS blo
 2. **Terminal:** `xattr -dr com.apple.quarantine /Applications/SiliconMeter.app`
 
 A copy you build yourself carries no quarantine flag and needs neither.
+
+## Desktop widget
+
+SwiftPM can't build app extensions, so `build_app.sh` compiles the widget itself with `swiftc` from the drawing code it shares with the app (`Model`, `Topology`, `ChipCatalog`, `ChipLayout`, `DieRenderer`, `WidgetArt`) plus `Widget/SiliconMeterWidget.swift`, and puts it at `Contents/PlugIns/SiliconMeterWidget.appex`. Things that turned out to matter:
+
+- **Entry point:** the extension is linked with `-e _NSExtensionMain`, as Xcode does. Started straight in the widget bundle's `@main`, the extension runtime finds its launch arguments missing and the process traps on launch (in `ExtensionFoundation`'s `_EXRunningExtension._shared`).
+- **Info.plist:** `NSExtensionPointIdentifier = com.apple.widgetkit-extension`, plus the platform / SDK keys Xcode adds (`CFBundleSupportedPlatforms`, `DT*`).
+- **Signing:** ad-hoc, with the App Sandbox entitlement (`Widget/Widget.entitlements`), which every widget extension needs. No App Group: the widget detects the chip itself (sysctl and the I/O registry), so it needs nothing from the app.
+- **Refresh:** the picture only changes when the app does, so the timeline has one entry and never reloads; the app calls `WidgetCenter.reloadAllTimelines()` at launch so a new build redraws placed widgets.
+- **Tinted widgets:** when the desktop isn't in front, macOS keeps only each pixel's opacity and paints it white. The die is drawn with `luminanceToAlpha()` then, so it reads as line art instead of a white slab.
+- **App icon:** packed by `iconutil` from `Resources/AppIcon.iconset`; the widget gallery misread the small sizes of a hand-packed icns.
+
+A click opens `siliconmeter://window` (registered in `scripts/Info.plist`), which shows the floating window.
 
 ## App icon
 
@@ -69,13 +84,13 @@ open build/SiliconMeter.app --args --debug                     # pick a chip fro
 open build/SiliconMeter.app --args --debug m5-ultra-36c-80g    # start as a specific chip
 ```
 
-Runs the real menu bar app as any of the 41 configurations (M1–M6, A18 Pro). The icon, popover and size switching are the shipping code; only the chip info and the load are simulated. A floating panel lets you switch chips and load (Idle / Sample / Busy / Full).
+Runs the real menu bar app as any of the 41 configurations (M1–M6, A18 Pro). The icon, popover, floating window and size switching are the shipping code; only the chip info and the load are simulated. A floating panel lets you switch chips and load (Idle / Sample / Busy / Full), and a second one, "Widget Preview", shows the selected chip's desktop widgets in every size it offers, in colour and tinted (the **Widgets** button brings it back).
 
 ```bash
 build/SiliconMeter.app/Contents/MacOS/SiliconMeter --simulate sim
 ```
 
-Writes every configuration's detected layout (`chips.json`), menu bar icons at 1x, 2x and 4x, and popover snapshots to `sim/`, and checks the cached render against a full redraw.
+Writes every configuration's detected layout (`chips.json`), menu bar icons at 1x, 2x and 4x, popover and Simple-mode snapshots (popover and window), widget sheets (`sim/widgets/`) and hover states (`sim/hover/`) to `sim/`, and checks the cached render against a full redraw.
 
 ```bash
 open build/SiliconMeter.app --args --debug -SMNoGlass YES      # solid background on macOS 26+ too

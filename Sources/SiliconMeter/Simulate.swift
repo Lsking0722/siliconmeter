@@ -194,6 +194,23 @@ enum Simulate {
                 entry["simpleSnapshot"] = "snaps/\(spec.id)_simple.png"
             } else { failures += 1 }
 
+            // Desktop widgets (small, medium, large), in colour and tinted.
+            try? fm.createDirectory(at: root.appendingPathComponent("widgets"), withIntermediateDirectories: true)
+            if let png = widgetsPNG(chip: chip, drawing: drawing) {
+                try? png.write(to: root.appendingPathComponent("widgets/\(spec.id).png"))
+            } else { failures += 1 }
+
+            // Pointing at the die: a top-tier core, a GPU core, the memory.
+            try? fm.createDirectory(at: root.appendingPathComponent("hover"), withIntermediateDirectories: true)
+            if let png = hoverPNG(chip: chip, drawing: drawing, snap: snap) {
+                try? png.write(to: root.appendingPathComponent("hover/\(spec.id).png"))
+            } else { failures += 1 }
+
+            // Simple mode in the floating window, with the traffic lights marked.
+            if let png = simplePNG(chip: chip, drawing: drawing, snap: snap, window: true) {
+                try? png.write(to: root.appendingPathComponent("snaps/\(spec.id)_simple_window.png"))
+            } else { failures += 1 }
+
             entries.append(entry)
             let tiers = chip.tiers.map { "\($0.cpuCount) \($0.name)" }.joined(separator: " + ")
             let name = "\(spec.brand) \(spec.cpuCount)C/\(spec.gpu)G"
@@ -402,15 +419,16 @@ enum Simulate {
     }
 
     @MainActor
-    private static func simplePNG(chip: ChipInfo, drawing: ChipDrawing, snap: Snapshot) -> Data? {
+    private static func simplePNG(chip: ChipInfo, drawing: ChipDrawing, snap: Snapshot, window: Bool = false) -> Data? {
         let anim = AnimState()
         anim.jump(to: snap)
         anim.settle(at: 1.25)
-        let m = PopoverMetrics.simple(for: drawing, tiers: chip.tiers.count)
+        let m = PopoverMetrics.simple(for: drawing, tiers: chip.tiers.count, window: window)
         let prefs = Preferences(persist: false)
         prefs.simple = true
         let view = HStack(alignment: .center, spacing: m.spacing) {
             SimplePanel(chip: chip, snapshot: snap, prefs: prefs)
+                .padding(.top, window ? PopoverMetrics.windowSimpleReserve : 0)
                 .frame(width: m.panelWidth)
                 .frame(maxHeight: .infinity)
             Canvas { context, size in
@@ -421,11 +439,68 @@ enum Simulate {
         .padding(m.margin)
         .frame(width: m.content.width, height: m.content.height)
         .background(Color.black)
+        .overlay(alignment: .topLeading) {
+            // Where the window's close / minimise / zoom buttons sit (macOS 26+: 14 pt
+            // circles, centres about 20 pt apart, ≈ 19 pt from the top-left corner).
+            if window {
+                HStack(spacing: 6) {
+                    ForEach(0..<3, id: \.self) { _ in Circle().fill(Color.red.opacity(0.75)).frame(width: 14, height: 14) }
+                }
+                .padding(.leading, 12).padding(.top, 12)
+            }
+        }
         .environment(\.colorScheme, .dark)
+        return png(view, scale: 2)
+    }
 
+    @MainActor
+    private static func png<V: View>(_ view: V, scale: CGFloat) -> Data? {
         let renderer = ImageRenderer(content: view)
-        renderer.scale = 2
+        renderer.scale = scale
         guard let cg = renderer.cgImage else { return nil }
         return NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:])
+    }
+
+    /// The widget sizes the chip offers, in colour and tinted (WidgetPreviewSheet).
+    @MainActor
+    private static func widgetsPNG(chip: ChipInfo, drawing: ChipDrawing) -> Data? {
+        png(WidgetPreviewSheet(chip: chip, drawing: drawing), scale: 2)
+    }
+
+    /// The die three times, pointed at a top-tier core, a GPU core and the memory: the glowing
+    /// outlines of every block of that kind and the label beside the pointer.
+    @MainActor
+    private static func hoverPNG(chip: ChipInfo, drawing: ChipDrawing, snap: Snapshot) -> Data? {
+        let anim = AnimState()
+        anim.jump(to: snap)
+        anim.settle(at: 1.25)
+        let size = PopoverView.canvasSize(for: drawing)
+        let renderer = DieRenderer(drawing: drawing, chip: chip)
+        let g = renderer.geometry(size)
+        let pal = ChipCatalog.palette(chip)
+        var targets: [(DieRegion, CGRect)] = []
+        if let b = drawing.blocks.first(where: { if case .core(_, 0) = $0.kind { return true }; return false }),
+           case let .core(cpu, tier) = b.kind { targets.append((.core(cpu: cpu, tier: tier), b.rect)) }
+        if let b = drawing.blocks.first(where: { if case .gpuCore = $0.kind { return true }; return false }),
+           case let .gpuCore(i) = b.kind { targets.append((.gpu(i), b.rect)) }
+        if let p = drawing.packages.first { targets.append((.memory, p)) }
+
+        let view = HStack(spacing: 16) {
+            ForEach(Array(targets.enumerated()), id: \.offset) { _, t in
+                let point = CGPoint(x: g.R(t.1).midX, y: g.R(t.1).midY)
+                Canvas { ctx, sz in
+                    renderer.render(ctx, size: sz, state: anim, time: 1.25)
+                    renderer.drawHover(ctx, size: sz, region: t.0, level: 1, time: 0)
+                    DieHoverTag.draw(ctx, size: sz, at: point,
+                                     label: DieHover.label(for: t.0, chip: chip, snapshot: snap),
+                                     accent: pal.accent.color, valueColor: pal.value.color)
+                }
+                .frame(width: size.width, height: size.height)
+            }
+        }
+        .padding(16)
+        .background(Color.black)
+        .environment(\.colorScheme, .dark)
+        return png(view, scale: 1)
     }
 }

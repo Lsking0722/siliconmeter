@@ -40,6 +40,11 @@ struct CoreTier {
     let index: Int           // 0 = fastest
     let name: String         // "Super", "Performance", "Efficiency" — as macOS reports it
     let cpuCount: Int
+
+    /// "S", "P", "E", "M": the tier's first letter, as Apple's own core labels go.
+    var letter: String { String(name.prefix(1)).uppercased() }
+    /// "P-core".
+    var shortName: String { "\(letter)-core" }
 }
 
 struct PerfLevel {
@@ -85,6 +90,11 @@ struct ChipInfo {
     var tag: String? {
         if series == .a { return brand.lowercased().contains("pro") ? "PRO" : nil }
         return variant == .base ? nil : variant.rawValue.uppercased()
+    }
+
+    /// "M4 Pro": the brand without "Apple ".
+    var displayName: String {
+        brand.hasPrefix("Apple ") ? String(brand.dropFirst(6)) : brand
     }
 
     /// Generation number for M-series rules; nil on A-series.

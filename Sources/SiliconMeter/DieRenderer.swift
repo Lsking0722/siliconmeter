@@ -1014,6 +1014,7 @@ struct DieRenderer {
 
 extension RGB {
     var color: Color { Color(red: r, green: g, blue: b) }
+    var nsColor: NSColor { NSColor(srgbRed: r, green: g, blue: b, alpha: 1) }
 }
 
 /// Deterministic pseudo-random value in 0..<1.
